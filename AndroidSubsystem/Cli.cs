@@ -124,7 +124,7 @@ internal static class Cli
                                    IReadOnlyDictionary<string, string> status,
                                    Func<AndroidVersion, string>? avdName)
     {
-        Console.WriteLine($"{"版本键",-14}{"Android 版本",-28}{"API",-6}{"状态",-26}{(avdName != null ? "AVD" : "")}"));
+        Console.WriteLine($"{"版本键",-14}{"Android 版本",-28}{"API",-6}{"状态",-26}{(avdName != null ? "AVD" : "")}");
         Console.WriteLine(new string('-', 78));
         foreach (var v in versions)
         {
