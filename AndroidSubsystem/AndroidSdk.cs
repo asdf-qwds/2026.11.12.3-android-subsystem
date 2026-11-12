@@ -308,11 +308,11 @@ internal sealed class AndroidSdk
 
     public bool IsImageInstalled(SystemImage img)
     {
-        var dir = Path.Combine(SystemImagesDir, $"android-{img.ApiLevel}", img.Tag, img.Ab i);
+        var dir = Path.Combine(SystemImagesDir, $"android-{img.ApiLevel}", img.Tag, img.Abi);
         if (Directory.Exists(dir) && Directory.EnumerateFiles(dir).Any()) return true;
 
         // 预览版镜像目录带小数位：android-37.0
-        dir = Path.Combine(SystemImagesDir, $"android-{img.ApiLevel}.0", img.Tag, img.Ab i);
+        dir = Path.Combine(SystemImagesDir, $"android-{img.ApiLevel}.0", img.Tag, img.Abi);
         return Directory.Exists(dir) && Directory.EnumerateFiles(dir).Any();
     }
 
