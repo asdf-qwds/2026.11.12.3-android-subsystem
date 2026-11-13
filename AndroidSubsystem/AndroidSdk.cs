@@ -309,7 +309,7 @@ internal sealed class AndroidSdk
     public bool IsImageInstalled(SystemImage img)
     {
         var tag = img.Tag;
-        var abi = img.Abi;
+        var abi = img.AbI;
 
         // 预览版镜像目录带小数位：android-37.0
         foreach (var apiDirName in new[] { $"android-{img.ApiLevel}", $"android-{img.ApiLevel}.0" })
@@ -378,6 +378,135 @@ internal sealed class AndroidSdk
         ConsoleUi.Step($"下载系统镜像 {img.Package}");
         ConsoleUi.Info("体积较大（通常 1–2 GB），请保持网络畅通…");
         await InstallPackagesAsync(img.Package);
+    }
+
+    // ---------------------------------------------------------------- 删除版本
+
+    /// <summary>某个版本当前占用的本地目录（用于删除前估算体积、删除后复核）。</summary>
+    public List<string> VersionPaths(AndroidVersion version)
+    {
+        var list = new List<string>();
+        foreach (var apiDirName in new[] { $"android-{version.ApiLevel}", $"android-{version.ApiLevel}.0" })
+            list.Add(Path.Combine(SystemImagesDir, apiDirName));
+        list.Add(AvdDirFor(AvdNameFor(version)));
+        return list;
+    }
+
+    public static long DirectorySize(string path)
+    {
+        if (!Directory.Exists(path)) return 0;
+        long total = 0;
+        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+        {
+            try { total += new FileInfo(file).Length; } catch { }
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// 删除某个 Android 版本的全部本地数据：系统镜像目录、AVD（含快照与 userdata）、AVD 配置、模拟器日志。
+    /// 返回实际删掉的条目（相对 SDK 根的路径）。
+    /// </summary>
+    public List<string> DeleteVersionData(AndroidVersion version, string? packageToUninstall)
+    {
+        var deleted = new List<string>();
+        var avdName = AvdNameFor(version);
+
+        // 1) 该版本模拟器正在跑的话必须先关掉，否则 AVD 里的镜像文件被占用删不掉
+        KillEmulatorForAvd(avdName);
+
+        // 2) 官方包优先交给 sdkmanager 卸载；Studio 下载的预览镜像它不认，下面按目录兜底
+        if (packageToUninstall != null && HasCmdlineTools)
+        {
+            var r = SdkManager(new[] { "--uninstall", packageToUninstall }, timeoutMs: 240000);
+            if (!r.Success)
+                ConsoleUi.Info("sdkmanager 未接管该包（可能不是它安装的），改为直接删除目录。");
+        }
+
+        // 3) 系统镜像目录（预览版是 android-37.0 这种带小数位的命名）
+        foreach (var apiDirName in new[] { $"android-{version.ApiLevel}", $"android-{version.ApiLevel}.0" })
+        {
+            var dir = Path.Combine(SystemImagesDir, apiDirName);
+            if (!Directory.Exists(dir)) continue;
+            if (DeleteDirectory(dir))
+            {
+                deleted.Add("system-images\\" + apiDirName);
+                ConsoleUi.Ok("已删除镜像目录：" + apiDirName);
+            }
+            else
+            {
+                ConsoleUi.Warn("删除失败（可能被占用）：" + dir);
+            }
+        }
+
+        // 4) AVD 目录（snapshots、userdata-qemu.img、cache.img 等全在这里）
+        var avdDir = AvdDirFor(avdName);
+        if (Directory.Exists(avdDir))
+        {
+            if (DeleteDirectory(avdDir))
+            {
+                deleted.Add("avd\\" + avdName + ".avd");
+                ConsoleUi.Ok("已删除 AVD：" + avdName + ".avd");
+            }
+            else
+            {
+                ConsoleUi.Warn("删除失败（可能被占用）：" + avdDir);
+            }
+        }
+
+        // 5) AVD 配置与模拟器日志
+        var avdIni = AvdIniFor(avdName);
+        if (File.Exists(avdIni))
+        {
+            try { File.Delete(avdIni); deleted.Add("avd\\" + avdName + ".ini"); } catch { }
+        }
+        var log = Path.Combine(LogsDir, "emulator-" + avdName + ".log");
+        if (File.Exists(log))
+        {
+            try { File.Delete(log); deleted.Add("logs\\emulator-" + avdName + ".log"); } catch { }
+        }
+
+        return deleted;
+    }
+
+    private static bool DeleteDirectory(string dir)
+    {
+        try { Directory.Delete(dir, true); return true; } catch { return false; }
+    }
+
+    /// <summary>关掉正在运行该 AVD 的模拟器实例（按 adb 里的 AVD 名匹配，不误杀别的版本）。</summary>
+    private void KillEmulatorForAvd(string avdName)
+    {
+        if (!IsRunning(avdName) || !HasAdb) return;
+
+        ConsoleUi.Info("该版本模拟器正在运行，先关闭…");
+        var killed = false;
+        try
+        {
+            var devices = Adb("devices");
+            foreach (var line in devices.StdOut.Split('\n'))
+            {
+                var text = line.Trim();
+                if (!text.StartsWith("emulator-") || !text.Contains("device")) continue;
+                var serial = text.Split('\t')[0].Trim();
+
+                var nameOut = Adb("-s", serial, "emu", "avd", "name").StdOut;
+                var running = nameOut.Split('\n')
+                    .Select(l => l.Trim())
+                    .FirstOrDefault(l => l.Length > 0 && !l.StartsWith("OK")) ?? "";
+
+                if (running.Equals(avdName, StringComparison.OrdinalIgnoreCase))
+                {
+                    Adb("-s", serial, "emu", "kill");
+                    ConsoleUi.Ok("已关闭：" + serial);
+                    killed = true;
+                }
+            }
+        }
+        catch { }
+
+        // 等它把 AVD 目录里的文件句柄释放掉
+        if (killed) System.Threading.Thread.Sleep(6000);
     }
 
     // ---------------------------------------------------------------- AVD
@@ -684,7 +813,7 @@ internal sealed class AndroidSdk
 
     private static int ParseJavaMajor(string text)
     {
-        var m = Regex.Match(text, "\"([0-9]+)");
+        var m = Regex.Match(text, "\"([0-9]+");
         if (m.Success) return int.Parse(m.Groups[1].Value);
         m = Regex.Match(text, "version\\s+([0-9]+)");
         return m.Success ? int.Parse(m.Groups[1].Value) : 0;
