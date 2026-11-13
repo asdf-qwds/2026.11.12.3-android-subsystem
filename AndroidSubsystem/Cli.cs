@@ -32,6 +32,12 @@ internal static class Cli
             case "dl":
                 return await DownloadAsync(rest);
 
+            case "del":
+            case "delete":
+            case "rm":
+            case "uninstall":
+                return await DeleteAsync(rest);
+
             case "start":
             case "run":
                 return await StartAsync(rest);
@@ -69,6 +75,7 @@ internal static class Cli
   -list  [android]             列出 Android 2.2 ~ Android 17 的全部版本及安装状态
   -download <版本>             下载该版本的系统镜像，例如 -download android17
   -download all                下载官方仓库中全部可用的系统镜像（体积非常大）
+  -del <版本>                  删除该版本的镜像与虚拟机数据（快照、userdata、AVD、日志），例如 -del android17
   -start <版本>                创建/启动该版本虚拟机（默认 Pixel 9 Pro）
   -start <版本> -gpu <模式>    指定图形模式：swiftshader_indirect（默认，兼容性最好）
                                host / auto（显卡渲染快，但部分 Intel 核显会白屏）
@@ -83,6 +90,7 @@ internal static class Cli
   android.exe -list android
   android.exe -download android17
   android.exe -start android17
+  android.exe -del android17
   android.exe -update");
     }
 
@@ -233,6 +241,83 @@ internal static class Cli
 
         ConsoleUi.Ok($"全部处理完成，失败 {failed} 个。");
         return failed == 0 ? 0 : 1;
+    }
+
+    // ---------------------------------------------------------------- delete
+
+    /// <summary>删除某个版本的全部本地数据：系统镜像 + AVD（快照/userdata）+ 配置 + 日志。</summary>
+    private static async Task<int> DeleteAsync(string[] rest)
+    {
+        var target = rest.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            ConsoleUi.Error("缺少版本参数。示例：android.exe -del android17");
+            return 2;
+        }
+
+        var settings = Settings.Load();
+        if (settings.SdkRoot == null)
+        {
+            ConsoleUi.Error("尚未设置下载目录，请先运行：android.exe -setup");
+            return 1;
+        }
+
+        var version = Catalog.ResolveOrThrow(target);
+        var sdk = new AndroidSdk(settings.SdkRoot);
+        var avdName = AndroidSdk.AvdNameFor(version);
+
+        // 只看本地，不读在线清单：删东西不需要联网
+        var img = sdk.FindLocalImage(version.ApiLevel);
+        var imageInstalled = img != null && sdk.IsImageInstalled(img);
+        var avdExists = sdk.AvdExists(avdName);
+
+        ConsoleUi.Step($"删除 {version.Label}（API {version.ApiLevel}）");
+        ConsoleUi.Info(version.Label + " 的镜像与虚拟机数据");
+
+        if (!imageInstalled && !avdExists && !Directory.Exists(sdk.AvdDirFor(avdName)))
+        {
+            ConsoleUi.Warn($"{version.Label}（API {version.ApiLevel}）当前没有安装，无需删除。");
+            ConsoleUi.Info("-list android 中该版本显示为「可下载」；要安装请执行：android.exe -download " + version.Key);
+            return 0;
+        }
+
+        long bytes = 0;
+        foreach (var p in sdk.VersionPaths(version)) bytes += AndroidSdk.DirectorySize(p);
+        var sizeText = bytes >= 1024L * 1024 * 1024
+            ? $"{bytes / 1024.0 / 1024 / 1024:F2} GB"
+            : $"{bytes / 1024.0 / 1024:F1} MB";
+
+        ConsoleUi.Info("将删除以下内容：");
+        if (imageInstalled) ConsoleUi.Info("  系统镜像：" + (img?.Package ?? "system-images\\android-" + version.ApiLevel));
+        else ConsoleUi.Info("  系统镜像：（未安装）");
+        ConsoleUi.Info("  虚拟机 AVD：" + avdName + (avdExists ? "" : "（不存在）"));
+        ConsoleUi.Info("  占用约 " + sizeText);
+
+        if (!ConsoleUi.Confirm("删除后要重新下载镜像（约 1–2 GB）才能再用，确认删除？", false))
+        {
+            ConsoleUi.Info("已取消，没有删除任何内容。");
+            return 0;
+        }
+
+        var deleted = await Task.Run(() => sdk.DeleteVersionData(version, imageInstalled ? img?.Package : null));
+
+        ConsoleUi.Step("复核");
+        var stillImage = sdk.FindLocalImage(version.ApiLevel);
+        var stillInstalled = stillImage != null && sdk.IsImageInstalled(stillImage);
+        var stillAvd = sdk.AvdExists(avdName) || Directory.Exists(sdk.AvdDirFor(avdName));
+
+        if (deleted.Count > 0)
+            ConsoleUi.Info("已删除 " + deleted.Count + " 项：" + string.Join("、", deleted));
+
+        if (stillInstalled || stillAvd)
+        {
+            ConsoleUi.Error("仍有残留未能删除（多半是被进程占用，先执行 android.exe -stop 再重试）。");
+            return 1;
+        }
+
+        ConsoleUi.Ok($"{version.Label}（API {version.ApiLevel}）的镜像与数据已全部删除，该版本现在显示为「未安装」。");
+        ConsoleUi.Info("复核：-list android 中该版本为「可下载」，-start 需要先 -download " + version.Key);
+        return 0;
     }
 
     // ---------------------------------------------------------------- start
