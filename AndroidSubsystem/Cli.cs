@@ -74,7 +74,9 @@ internal static class Cli
   -setup [目录]                同上，可指定下载目录
   -list  [android]             列出 Android 2.2 ~ Android 17 的全部版本及安装状态
   -download <版本>             下载该版本的系统镜像，例如 -download android17
-  -download all                下载官方仓库中全部可用的系统镜像（体积非常大）
+                               会先让你选镜像类型：1 google_apis / 2 google_apis_playstore
+  -download <版本> 1|2         直接指定镜像类型，跳过询问（1 google_apis，2 google_apis_playstore）
+  -download all                下载官方仓库中该类型全部可用的系统镜像（体积非常大，同样先选类型）
   -del <版本>                  删除该版本的镜像与虚拟机数据（快照、userdata、AVD、日志），例如 -del android17
   -start <版本>                创建/启动该版本虚拟机（默认 Pixel 9 Pro）
   -start <版本> -gpu <模式>    指定图形模式：swiftshader_indirect（默认，兼容性最好）
@@ -89,6 +91,7 @@ internal static class Cli
 示例：
   android.exe -list android
   android.exe -download android17
+  android.exe -download android16 2
   android.exe -start android17
   android.exe -del android17
   android.exe -update");
@@ -158,6 +161,9 @@ internal static class Cli
 
     // ---------------------------------------------------------------- download
 
+    private const string TagGoogleApis = "google_apis";
+    private const string TagPlaystore = "google_apis_playstore";
+
     private static async Task<int> DownloadAsync(string[] rest)
     {
         var target = rest.FirstOrDefault();
@@ -180,15 +186,16 @@ internal static class Cli
             await sdk.EnsureBaseAsync();
 
         if (target.Equals("all", StringComparison.OrdinalIgnoreCase) || target == "*")
-            return await DownloadAllAsync(sdk);
+            return await DownloadAllAsync(sdk, TagHintFrom(rest, 1));
 
         var version = Catalog.ResolveOrThrow(target);
         var repo = await Task.Run(() => sdk.ListImages());
-        var img = FindImage(sdk, repo, version);
+        var tag = AskImageTag(version, repo, TagHintFrom(rest, 1));
+        var img = PickTaggedImage(sdk, repo, version, tag);
         if (img == null)
         {
-            ConsoleUi.Error($"{version.Label}（API {version.ApiLevel}）在官方仓库中没有可用的系统镜像。");
-            ConsoleUi.Info("可用 -list android 查看状态为“可下载”的版本。");
+            ConsoleUi.Error($"{version.Label}（API {version.ApiLevel}）在官方仓库中没有 {tag} 镜像。");
+            ConsoleUi.Info("换成另一种镜像类型再试，或用 -list android 查看该版本可下载的状态。");
             return 1;
         }
 
@@ -202,7 +209,85 @@ internal static class Cli
         return 0;
     }
 
-    private static async Task<int> DownloadAllAsync(AndroidSdk sdk)
+    /// <summary>从命令行参数里取镜像类型提示：-download android17 1 / 2 / google_apis / playstore。</summary>
+    private static string? TagHintFrom(string[] rest, int index)
+    {
+        if (rest.Length <= index) return null;
+        var hint = rest[index];
+        if (hint.Equals("tag", StringComparison.OrdinalIgnoreCase) || hint.Equals("--tag", StringComparison.OrdinalIgnoreCase))
+            return rest.Length > index + 1 ? rest[index + 1] : null;
+        return hint;
+    }
+
+    private static string? NormalizeTag(string? hint)
+    {
+        if (string.IsNullOrWhiteSpace(hint)) return null;
+        switch (hint.Trim().TrimStart('-').ToLowerInvariant())
+        {
+            case "1":
+            case "g":
+            case "google":
+            case "api":
+            case "apis":
+            case "google_apis":
+            case "googleapis":
+                return TagGoogleApis;
+            case "2":
+            case "p":
+            case "play":
+            case "store":
+            case "playstore":
+            case "google_play":
+            case "google_apis_playstore":
+                return TagPlaystore;
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>询问要哪种镜像：1 google_apis，2 google_apis_playstore。</summary>
+    private static string AskImageTag(AndroidVersion version, ImageRepo repo, string? hint, string? purpose = null)
+    {
+        var forced = NormalizeTag(hint);
+        if (forced != null)
+        {
+            ConsoleUi.Info($"镜像类型（命令行指定）：{forced}");
+            return forced;
+        }
+
+        if (repo.IsLoaded)
+        {
+            var hasApis = repo.HasTag(version.ApiLevel, TagGoogleApis);
+            var hasPlay = repo.HasTag(version.ApiLevel, TagPlaystore);
+            if (hasApis && !hasPlay)
+            {
+                ConsoleUi.Info($"该版本只有 {TagGoogleApis} 镜像，已自动选择。");
+                return TagGoogleApis;
+            }
+            if (hasPlay && !hasApis)
+            {
+                ConsoleUi.Info($"该版本只有 {TagPlaystore} 镜像，已自动选择。");
+                return TagPlaystore;
+            }
+        }
+
+        ConsoleUi.Step(purpose ?? $"选择镜像类型：{version.Label}（API {version.ApiLevel}）");
+        ConsoleUi.Info("1. google_apis            官方系统镜像，无 Play 商店（调试友好，可自由安装 APK）");
+        ConsoleUi.Info("2. google_apis_playstore  同一官方下载源的镜像，内置 Google Play 商店");
+        ConsoleUi.Info("两者都从 Android Studio 官方镜像仓库下载，只是 tag 不同；旧版本可能只有其中一种。");
+        var pick = ConsoleUi.Choose("请输入序号", 2, 1);
+        return pick == 2 ? TagPlaystore : TagGoogleApis;
+    }
+
+    /// <summary>按指定 tag 找镜像：本地已装的那种优先，其次在线清单。</summary>
+    private static SystemImage? PickTaggedImage(AndroidSdk sdk, ImageRepo repo, AndroidVersion version, string tag)
+    {
+        var local = sdk.FindLocalImage(version.ApiLevel, tag);
+        if (local != null) return local;
+        return repo.IsLoaded ? repo.PickTagged(version.ApiLevel, tag) : null;
+    }
+
+    private static async Task<int> DownloadAllAsync(AndroidSdk sdk, string? tagHint = null)
     {
         var repo = await Task.Run(() => sdk.ListImages());
         if (!repo.IsLoaded)
@@ -211,13 +296,26 @@ internal static class Cli
             return 1;
         }
 
+        var tag = NormalizeTag(tagHint);
+        if (tag == null)
+        {
+            ConsoleUi.Step("选择镜像类型（全部版本共用）");
+            ConsoleUi.Info("1. google_apis            官方系统镜像，无 Play 商店");
+            ConsoleUi.Info("2. google_apis_playstore  同一官方下载源的镜像，内置 Google Play 商店");
+            tag = ConsoleUi.Choose("请输入序号", 2, 1) == 2 ? TagPlaystore : TagGoogleApis;
+        }
+        else
+        {
+            ConsoleUi.Info("镜像类型（命令行指定）：" + tag);
+        }
+
         var items = Catalog.Versions
-            .Select(v => (version: v, image: FindImage(sdk, repo, v)))
+            .Select(v => (version: v, image: PickTaggedImage(sdk, repo, v, tag)))
             .Where(p => p.image != null)
             .ToList();
 
         var pending = items.Where(p => !sdk.IsImageInstalled(p.image!)).ToList();
-        ConsoleUi.Warn($"官方仓库中共有 {items.Count} 个版本可用镜像，其中 {pending.Count} 个未安装。");
+        ConsoleUi.Warn($"官方仓库中共有 {items.Count} 个版本有 {tag} 镜像，其中 {pending.Count} 个未安装。");
         ConsoleUi.Warn("每个镜像通常 1–2 GB，全部下载可能占用数百 GB 磁盘空间。");
         if (!ConsoleUi.Confirm("确认开始下载全部镜像？", false))
         {

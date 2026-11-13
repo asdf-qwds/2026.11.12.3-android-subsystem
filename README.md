@@ -1,4 +1,4 @@
-# 2026.11.12.6 — Android Subsystem for Windows
+# 2026.11.12.7 — Android Subsystem for Windows
 
 用 C# 写的 Windows「安卓子系统」命令行工具。产物是**单个自包含 exe**（`android.exe`，约 35 MB，目标机无需安装 .NET），它调用 Android Studio 官方那套 SDK / emulator 来完成下载、建虚拟机、启动虚拟机。
 
@@ -10,8 +10,9 @@
 android.exe                     首次运行向导：选下载目录 → 装 emulator/ADB → 选版本
 android.exe -setup <目录>        指定下载目录并安装基础组件
 android.exe -list android       列出全部版本及「已安装 / 可下载 / 不支持」
-android.exe -download <版本>     下载该版本系统镜像，例如 -download android17
-android.exe -download all       下载官方仓库里全部可用镜像（体积非常大）
+android.exe -download <版本>     下载该版本系统镜像，会先让你选镜像类型，例如 -download android17
+android.exe -download <版本> 1|2 直接指定镜像类型：1 = google_apis，2 = google_apis_playstore
+android.exe -download all       下载该类型全部可用镜像（体积非常大，同样先选类型）
 android.exe -del <版本>          删除该版本的镜像与全部数据（快照 / userdata / AVD / 日志），例如 -del android17
 android.exe -start <版本>        创建并启动该版本虚拟机，例如 -start android16
 android.exe -start <版本> -gpu <模式>   指定图形模式 host / auto / swiftshader_indirect / angle_indirect / guest
@@ -21,6 +22,27 @@ android.exe -where              显示下载目录与配置文件位置
 ```
 
 版本写法：`android17`、`17`、`android2.2`、`android5.0` ……
+
+## 下载时的镜像类型（google_apis / google_apis_playstore）
+
+`-download <版本>` 会先问要哪种系统镜像，两者都来自 Android Studio 用的官方镜像仓库（`dl.google.com` / `sdkmanager`），区别只是 tag：
+
+```
+> android.exe -download android16
+
+>> 选择镜像类型：Android 16（API 36）
+   1. google_apis            官方系统镜像，无 Play 商店（调试友好，可自由安装 APK）
+   2. google_apis_playstore  同一官方下载源的镜像，内置 Google Play 商店
+   两者都从 Android Studio 官方镜像仓库下载，只是 tag 不同；旧版本可能只有其中一种。
+请输入序号 [1-2]（默认 1）: 2
+>> 下载系统镜像 system-images;android-36;google_apis_playstore;x86_64
+```
+
+- 选 **1** → `system-images;android-XX;google_apis;<abi>`；选 **2** → `...;google_apis_playstore;<abi>`
+- 直接回车默认选 1；旧版本（如 Android 4.4）只有 `google_apis` 时会自动选定，不再多问
+- 想跳过询问：`android.exe -download android16 1`（或 `2`，也接受 `google_apis` / `playstore` 这种写法）
+- `-download all` 只问一次，按所选类型逐版本挑镜像；某个版本没有该类型就跳过
+- 已经装过同类型镜像时直接提示 `镜像已安装`，不会重复下载；另一种类型没装也可以单独再下一次
 
 ## 自动更新（-update）
 
@@ -112,12 +134,12 @@ API 37 预览镜像在 emulator 上会规律性地崩溃，属上游缺陷，与
 | 文件 | 职责 |
 | --- | --- |
 | `Program.cs` | 入口、异常收敛、启动清理 `android.old.exe` |
-| `Cli.cs` | 命令解析、list / download / del / start / update / stop / where |
+| `Cli.cs` | 命令解析、list / download（含镜像类型选择）/ del / start / update / stop / where |
 | `Wizard.cs` | 首次运行向导（选目录 → 装组件 → 选版本 → 启动） |
 | `Updater.cs` | `-update`：GitHub 版本查询、版本比较、Y/N 询问、镜像下载、校验、自替换 |
 | `AndroidSdk.cs` | SDK 安装、镜像解析、AVD 创建、启动、窗口、健康检查、版本删除（含关模拟器 / 清镜像 / 清 AVD） |
 | `Catalog.cs` | 29 个版本目录与别名解析 |
-| `ImageRepo.cs` | 解析 `sdkmanager --list`，按 tag/ABI 优先级择优 |
+| `ImageRepo.cs` | 解析 `sdkmanager --list`，按指定 tag（google_apis / google_apis_playstore）与 ABI 优先级择优 |
 | `Downloader.cs` | 断点前清理的单文件下载 + 进度条 |
 | `ProcessRunner.cs` | 外部进程执行与后台启动（GUI 程序不隐藏窗口） |
 | `ConsoleUi.cs` | 输出与交互（含 `BuildVersion`） |

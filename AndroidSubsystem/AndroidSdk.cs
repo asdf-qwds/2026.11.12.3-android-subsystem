@@ -361,6 +361,20 @@ internal sealed class AndroidSdk
         return null;
     }
 
+    /// <summary>扫描本地指定 tag（google_apis / google_apis_playstore）的镜像，找不到返回 null。</summary>
+    public SystemImage? FindLocalImage(int apiLevel, string tag)
+    {
+        foreach (var apiDirName in new[] { $"android-{apiLevel}", $"android-{apiLevel}.0" })
+        {
+            var apiDir = Path.Combine(SystemImagesDir, apiDirName);
+            if (!Directory.Exists(apiDir)) continue;
+
+            var hit = FirstAbiUnder(Path.Combine(apiDir, tag), apiLevel, apiDirName, tag);
+            if (hit != null) return hit;
+        }
+        return null;
+    }
+
     /// <summary>包名要用真实的目录名（预览版是 android-37.0），否则 avdmanager 找不到镜像。</summary>
     private static SystemImage? FirstAbiUnder(string tagDir, int apiLevel, string apiDirName, string tag)
     {

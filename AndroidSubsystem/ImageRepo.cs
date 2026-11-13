@@ -67,4 +67,17 @@ internal sealed class ImageRepo
             .ThenBy(i => AbiRank(i.Abi))
             .FirstOrDefault();
     }
+
+    /// <summary>该 API 级别下是否有指定 tag（google_apis / google_apis_playstore）的镜像。</summary>
+    public bool HasTag(int apiLevel, string tag)
+        => _images.Any(i => i.ApiLevel == apiLevel && string.Equals(i.Tag, tag, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>按指定 tag 挑镜像，同一 tag 下再按主机架构优先；没有该 tag 返回 null。</summary>
+    public SystemImage? PickTagged(int apiLevel, string tag)
+    {
+        return _images
+            .Where(i => i.ApiLevel == apiLevel && string.Equals(i.Tag, tag, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(i => AbiRank(i.Abi))
+            .FirstOrDefault();
+    }
 }

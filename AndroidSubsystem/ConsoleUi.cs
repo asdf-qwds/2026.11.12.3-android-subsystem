@@ -7,7 +7,7 @@ namespace AndroidSubsystem;
 internal static class ConsoleUi
 {
     /// <summary>构建标识，用于确认用户手里跑的是哪一版 exe。</summary>
-    public const string BuildVersion = "2026-11-12.6";
+    public const string BuildVersion = "2026-11-12.7";
 
     public static void Banner()
     {
@@ -53,6 +53,21 @@ internal static class ConsoleUi
         var line = Console.ReadLine()?.Trim().ToLowerInvariant();
         if (string.IsNullOrEmpty(line)) return def;
         return line is "y" or "yes" or "是" or "1";
+    }
+
+    /// <summary>在 1..count 里选一项，直接回车取默认项。</summary>
+    public static int Choose(string prompt, int count, int def = 1)
+    {
+        while (true)
+        {
+            Console.Write($"{prompt} [1-{count}]（默认 {def}）: ");
+            var line = Console.ReadLine();
+            if (line == null) return def;
+            line = line.Trim();
+            if (line.Length == 0) return def;
+            if (int.TryParse(line, out var n) && n >= 1 && n <= count) return n;
+            Console.WriteLine($"   请输入 1 到 {count} 之间的数字。");
+        }
     }
 
     /// <summary>单行进度条，覆盖刷新当前行。</summary>
