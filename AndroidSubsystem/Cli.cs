@@ -40,6 +40,10 @@ internal static class Cli
             case "init":
                 return await Wizard.RunAsync(rest.FirstOrDefault());
 
+            case "update":
+            case "up":
+                return await Updater.RunAsync();
+
             case "stop":
                 return Stop();
 
@@ -70,6 +74,7 @@ internal static class Cli
                                host / auto（显卡渲染快，但部分 Intel 核显会白屏）
                                angle_indirect / guest
   -stop                        关闭所有正在运行的模拟器
+  -update                      检查 GitHub 上的新版本：有更新会提示 Y/N，Y 则下载并替换当前 exe
   -where                       显示当前下载目录与配置位置
 
 版本写法：android17、17、android2.2、android5.0 ……
@@ -77,7 +82,8 @@ internal static class Cli
 示例：
   android.exe -list android
   android.exe -download android17
-  android.exe -start android17");
+  android.exe -start android17
+  android.exe -update");
     }
 
     // ---------------------------------------------------------------- list
