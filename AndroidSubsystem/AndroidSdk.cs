@@ -309,7 +309,7 @@ internal sealed class AndroidSdk
     public bool IsImageInstalled(SystemImage img)
     {
         var tag = img.Tag;
-        var abi = img.AbI;
+        var abi = img.Abi;
 
         // 预览版镜像目录带小数位：android-37.0
         foreach (var apiDirName in new[] { $"android-{img.ApiLevel}", $"android-{img.ApiLevel}.0" })
@@ -813,7 +813,7 @@ internal sealed class AndroidSdk
 
     private static int ParseJavaMajor(string text)
     {
-        var m = Regex.Match(text, "\"([0-9]+");
+        var m = Regex.Match(text, "\"([0-9]+)");
         if (m.Success) return int.Parse(m.Groups[1].Value);
         m = Regex.Match(text, "version\\s+([0-9]+)");
         return m.Success ? int.Parse(m.Groups[1].Value) : 0;
