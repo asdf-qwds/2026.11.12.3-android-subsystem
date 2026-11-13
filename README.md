@@ -1,4 +1,4 @@
-# 2026.11.12.5 — Android Subsystem for Windows
+# 2026.11.12.6 — Android Subsystem for Windows
 
 用 C# 写的 Windows「安卓子系统」命令行工具。产物是**单个自包含 exe**（`android.exe`，约 35 MB，目标机无需安装 .NET），它调用 Android Studio 官方那套 SDK / emulator 来完成下载、建虚拟机、启动虚拟机。
 
@@ -12,6 +12,7 @@ android.exe -setup <目录>        指定下载目录并安装基础组件
 android.exe -list android       列出全部版本及「已安装 / 可下载 / 不支持」
 android.exe -download <版本>     下载该版本系统镜像，例如 -download android17
 android.exe -download all       下载官方仓库里全部可用镜像（体积非常大）
+android.exe -del <版本>          删除该版本的镜像与全部数据（快照 / userdata / AVD / 日志），例如 -del android17
 android.exe -start <版本>        创建并启动该版本虚拟机，例如 -start android16
 android.exe -start <版本> -gpu <模式>   指定图形模式 host / auto / swiftshader_indirect / angle_indirect / guest
 android.exe -stop               关闭所有正在运行的模拟器
@@ -32,6 +33,36 @@ android.exe -where              显示下载目录与配置文件位置
 下载顺序：`ghfast.top` 镜像 → `gh-proxy.com` 镜像 → 直连 GitHub，每次最多两轮；等响应头有 45 秒上限，传输中超过 20 秒无数据判定断流。下载完成按 Release 资产字节数校验，再把运行中的 `android.exe` 改名成 `android.old.exe`、新文件改名为 `android.exe`，失败自动回滚，下次启动清理 `.old`。
 
 发布仓库可用环境变量 `ANDSYS_UPDATE_REPO=owner/repo` 覆盖。
+
+## 删除版本（-del）
+
+`-del`（别名 `delete` / `rm` / `uninstall`）把一个版本在本机的痕迹全部清掉，腾出磁盘：
+
+1. 该版本模拟器正在运行 → 先按 adb 里的 AVD 名精确匹配并 `emu kill`，等 6 秒释放文件句柄（不会误杀别的版本）。
+2. 有 cmdline-tools 时先 `sdkmanager --uninstall system-images;android-XX;tag;abi`；Studio 下载的预览镜像它不认，接着按目录兜底。
+3. 删除 `system-images\android-XX` 与 `android-XX.0`（预览镜像带小数位的命名）。
+4. 删除 AVD 目录 `avd\as_<版本>.avd`（`snapshots`、`userdata-qemu.img`、`cache.img` 都在里面）、配置 `avd\as_<版本>.ini`、日志 `logs\emulator-as_<版本>.log`。
+5. 删完复核：再扫一遍镜像目录与 AVD，确认都没了才打印 `该版本现在显示为「未安装」`；仍有残留（多半被进程占用）返回退出码 1，并提示先 `-stop`。
+
+删除前会列出将删的内容与占用体积，并询问 `删除后要重新下载镜像（约 1–2 GB）才能再用，确认删除？ [y/N]`，默认否。版本本来就没装时直接提示无需删除，返回 0。
+
+```
+> android.exe -del android17
+
+>> 删除 Android 17（API 37）
+   将删除以下内容：
+     系统镜像：system-images;android-37.0;google_apis;x86_64
+     虚拟机 AVD：as_android17
+     占用约 1.85 GB
+删除后要重新下载镜像（约 1–2 GB）才能再用，确认删除？ [y/N]: y
+[OK] 已删除镜像目录：android-37.0
+[OK] 已删除 AVD：as_android17.avd
+
+>> 复核
+   已删除 4 项：system-images\android-37.0、avd\as_android17.avd、avd\as_android17.ini、logs\emulator-as_android17.log
+[OK] Android 17（API 37）的镜像与数据已全部删除，该版本现在显示为「未安装」。
+   复核：-list android 中该版本为「可下载」，-start 需要先 -download android17
+```
 
 ## 首次运行会下载什么
 
@@ -81,10 +112,10 @@ API 37 预览镜像在 emulator 上会规律性地崩溃，属上游缺陷，与
 | 文件 | 职责 |
 | --- | --- |
 | `Program.cs` | 入口、异常收敛、启动清理 `android.old.exe` |
-| `Cli.cs` | 命令解析、list / download / start / update / stop / where |
+| `Cli.cs` | 命令解析、list / download / del / start / update / stop / where |
 | `Wizard.cs` | 首次运行向导（选目录 → 装组件 → 选版本 → 启动） |
 | `Updater.cs` | `-update`：GitHub 版本查询、版本比较、Y/N 询问、镜像下载、校验、自替换 |
-| `AndroidSdk.cs` | SDK 安装、镜像解析、AVD 创建、启动、窗口、健康检查 |
+| `AndroidSdk.cs` | SDK 安装、镜像解析、AVD 创建、启动、窗口、健康检查、版本删除（含关模拟器 / 清镜像 / 清 AVD） |
 | `Catalog.cs` | 29 个版本目录与别名解析 |
 | `ImageRepo.cs` | 解析 `sdkmanager --list`，按 tag/ABI 优先级择优 |
 | `Downloader.cs` | 断点前清理的单文件下载 + 进度条 |
