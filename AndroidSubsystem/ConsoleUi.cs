@@ -7,7 +7,7 @@ namespace AndroidSubsystem;
 internal static class ConsoleUi
 {
     /// <summary>构建标识，用于确认用户手里跑的是哪一版 exe。</summary>
-    public const string BuildVersion = "2026-11-12.3";
+    public const string BuildVersion = "2026-11-12.5";
 
     public static void Banner()
     {

@@ -9,6 +9,7 @@ internal static class Program
         try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
 
         ConsoleUi.Banner();
+        Updater.CleanupOld();
 
         try
         {
