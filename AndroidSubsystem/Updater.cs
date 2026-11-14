@@ -25,6 +25,7 @@ internal static class Updater
         public string Tag = "";
         public string Name = "";
         public string PageUrl = "";
+        public string Body = "";
         public string? AssetUrl;
         public string? AssetName;
         public long AssetSize;
@@ -144,6 +145,7 @@ internal static class Updater
             Tag = root.TryGetProperty("tag_name", out var tag) ? (tag.GetString() ?? "") : "",
             Name = root.TryGetProperty("name", out var name) ? (name.GetString() ?? "") : "",
             PageUrl = root.TryGetProperty("html_url", out var page) ? (page.GetString() ?? "") : "",
+            Body = root.TryGetProperty("body", out var body) ? (body.GetString() ?? "") : "",
         };
 
         if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
@@ -231,8 +233,35 @@ internal static class Updater
         {
             ConsoleUi.Ok($"已更新到 {remote.Display}。");
             ConsoleUi.Info("请重新运行 android.exe 使用新版本（旧版本会以 android.old.exe 留在同目录，下次启动自动清理）。");
+            PrintReleaseNotes(latest.Body);
         }
         return replaced ? 0 : 1;
+    }
+
+    /// <summary>更新完成后把该 Release 的更新说明打到控制台（顺手去掉 markdown 记号）。</summary>
+    private static void PrintReleaseNotes(string? body)
+    {
+        ConsoleUi.Step("本次更新内容");
+        var text = (body ?? "").Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+        if (text.Length == 0)
+        {
+            ConsoleUi.Info("（该版本没有填写更新说明）");
+            return;
+        }
+
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd();
+            line = line.Replace("**", "").Replace("`", "");
+            line = line.TrimStart('#', ' ');
+            if (line.Trim().Length == 0)
+            {
+                Console.WriteLine();
+                continue;
+            }
+            ConsoleUi.Info("  " + line);
+        }
+        Console.WriteLine();
     }
 
     // ---------------------------------------------------------------- 清理
