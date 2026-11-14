@@ -1,4 +1,4 @@
-# 2026.11.12.7 — Android Subsystem for Windows
+# 正式版1.0.0.0 — Android Subsystem for Windows
 
 用 C# 写的 Windows「安卓子系统」命令行工具。产物是**单个自包含 exe**（`android.exe`，约 35 MB，目标机无需安装 .NET），它调用 Android Studio 官方那套 SDK / emulator 来完成下载、建虚拟机、启动虚拟机。
 
@@ -17,7 +17,7 @@ android.exe -del <版本>          删除该版本的镜像与全部数据（快
 android.exe -start <版本>        创建并启动该版本虚拟机，例如 -start android16
 android.exe -start <版本> -gpu <模式>   指定图形模式 host / auto / swiftshader_indirect / angle_indirect / guest
 android.exe -stop               关闭所有正在运行的模拟器
-android.exe -update             检查 GitHub 上的新版本：有更新会提示 [Y/n]，Y 则下载并替换当前 exe
+android.exe -update             检查 GitHub 上的新版本：显示正式版/预览版，有更新提示 [Y/n]，版本名带「强制」时只有 Y
 android.exe -where              显示下载目录与配置文件位置
 ```
 
@@ -49,8 +49,11 @@ android.exe -where              显示下载目录与配置文件位置
 `-update`（别名 `up`）只更新 exe 本身，不碰镜像和 SDK：
 
 1. 读 `https://api.github.com/repos/asdf-qwds/2026.11.12.3-android-subsystem/releases/latest` 的 `tag_name` / `name` / `html_url` / `assets`，优先取名为 `android.exe` 的资产。
-2. 版本号归一化后逐段比较（`v2026.11.12.5` 与 `2026-11-12.5` 视为同版本），不做字符串比较。
-3. 远端不新 → `当前已是最新版本（x），无需更新。`；远端更新 → `发现新版本 X，当前为 Y。` 并询问 `是否现在更新到 X？ [Y/n]:`，Y 下载并替换，N 保持当前版本。
+2. 版本名形如 `正式版1.0.0.0` 或 `预览版2026-11-14-8`（Release 标题里写在最前面），解析后**先比通道再比数字**：正式版 > 预览版；同为正式版按 `1.0.0.0` 逐段比较，同为预览版按 `2026-11-14-8` 逐段比较（点号 `2026.11.14.8`、tag 的 `v` 前缀都视为同一版本）。
+3. 远端不新 → `当前已是最新版本（正式版1.0.0.0），无需更新。`；远端更新 → `发现新版本：正式版1.0.0.0（当前 预览版2026-11-12-7）。` 并询问 `是否现在更新到 正式版1.0.0.0？ [Y/n]:`，Y 下载并替换，N 保持当前版本。
+4. 版本名里出现「强制」两字（如 Release 标题写成 `强制正式版1.0.0.1` 或 `正式版1.0.0.1（强制）`）→ 提示变成 `[Y]（强制更新，没有 N）`，只接受 `Y`，输 `n` 会提示「只能输入 Y」并重新询问，回车不取消。
+
+`BuildVersion`（横幅里的 `build`）与 Release 标题使用同一套写法：正式版写 `正式版1.0.0.0`，预览版写 `预览版2026-11-14-8`。
 
 下载顺序：`ghfast.top` 镜像 → `gh-proxy.com` 镜像 → 直连 GitHub，每次最多两轮；等响应头有 45 秒上限，传输中超过 20 秒无数据判定断流。下载完成按 Release 资产字节数校验，再把运行中的 `android.exe` 改名成 `android.old.exe`、新文件改名为 `android.exe`，失败自动回滚，下次启动清理 `.old`。
 
@@ -136,7 +139,8 @@ API 37 预览镜像在 emulator 上会规律性地崩溃，属上游缺陷，与
 | `Program.cs` | 入口、异常收敛、启动清理 `android.old.exe` |
 | `Cli.cs` | 命令解析、list / download（含镜像类型选择）/ del / start / update / stop / where |
 | `Wizard.cs` | 首次运行向导（选目录 → 装组件 → 选版本 → 启动） |
-| `Updater.cs` | `-update`：GitHub 版本查询、版本比较、Y/N 询问、镜像下载、校验、自替换 |
+| `Updater.cs` | `-update`：GitHub 版本查询、正式版/预览版比较、Y/N（或强制 Y）询问、镜像下载、校验、自替换 |
+| `Versioning.cs` | 版本名解析与比较（`正式版1.0.0.0` / `预览版2026-11-14-8`、`强制` 标记） |
 | `AndroidSdk.cs` | SDK 安装、镜像解析、AVD 创建、启动、窗口、健康检查、版本删除（含关模拟器 / 清镜像 / 清 AVD） |
 | `Catalog.cs` | 29 个版本目录与别名解析 |
 | `ImageRepo.cs` | 解析 `sdkmanager --list`，按指定 tag（google_apis / google_apis_playstore）与 ABI 优先级择优 |

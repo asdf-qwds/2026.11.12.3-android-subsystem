@@ -6,8 +6,11 @@ namespace AndroidSubsystem;
 
 internal static class ConsoleUi
 {
-    /// <summary>构建标识，用于确认用户手里跑的是哪一版 exe。</summary>
-    public const string BuildVersion = "2026-11-12.7";
+    /// <summary>构建标识，用于确认用户手里跑的是哪一版 exe（正式版用 1.0.0.0，预览版用日期式编号）。</summary>
+    public const string BuildVersion = "正式版1.0.0.0";
+
+    /// <summary>纯 ASCII 版本号，仅用于 HTTP User-Agent 等不允许中文的场合。</summary>
+    public const string BuildId = "1.0.0.0";
 
     public static void Banner()
     {
@@ -67,6 +70,28 @@ internal static class ConsoleUi
             if (line.Length == 0) return def;
             if (int.TryParse(line, out var n) && n >= 1 && n <= count) return n;
             Console.WriteLine($"   请输入 1 到 {count} 之间的数字。");
+        }
+    }
+
+    /// <summary>强制更新：版本名里带「强制」时只能输入 Y，没有 N。</summary>
+    public static void ConfirmForced(string prompt)
+    {
+        var first = true;
+        while (true)
+        {
+            Console.Write($"{prompt} [Y]（强制更新，没有 N）: ");
+            var line = Console.ReadLine();
+            if (line == null)
+            {
+                Console.WriteLine();
+                Console.WriteLine("   该版本为强制更新且无输入，按更新继续。");
+                return;
+            }
+            line = line.Trim().ToLowerInvariant();
+            if (line is "y" or "yes" or "是" or "1") return;
+            if (first || line.Length > 0)
+                Console.WriteLine("   该版本为强制更新，只能输入 Y。");
+            first = false;
         }
     }
 

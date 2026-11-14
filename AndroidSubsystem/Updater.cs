@@ -9,8 +9,8 @@ namespace AndroidSubsystem;
 
 /// <summary>
 /// 通过 GitHub Releases 检查并安装新版本（android.exe -update）。
-/// 版本号取最近一个 Release 的 tag（形如 v2026.11.12.3），与当前 exe 的构建版本比较；
-/// 远端更新时询问 Y/N，Y 则下载 Release 里的 android.exe 并自替换。
+/// 版本名支持「正式版1.0.0.0」与「预览版2026-11-14-8」两种前缀，按通道 + 数字逐段比较；
+/// 版本名里带「强制」时只接受 Y，没有 N。Y 则下载 Release 里的 android.exe 并自替换。
 /// </summary>
 internal static class Updater
 {
@@ -39,7 +39,7 @@ internal static class Updater
             ConnectTimeout = TimeSpan.FromSeconds(30),
         };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(120) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("AndroidSubsystem/" + ConsoleUi.BuildVersion);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("AndroidSubsystem/" + ConsoleUi.BuildId);
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return client;
     }
@@ -60,10 +60,10 @@ internal static class Updater
     public static async Task<int> RunAsync()
     {
         var (owner, repo) = Target();
-        var current = ConsoleUi.BuildVersion;
+        var current = Versioning.Parse(ConsoleUi.BuildVersion);
 
         ConsoleUi.Step("检查更新（GitHub Releases）");
-        ConsoleUi.Info($"当前版本：{current}");
+        ConsoleUi.Info($"当前版本：{current.Display}");
         ConsoleUi.Info($"版本来源：https://github.com/{owner}/{repo}/releases");
 
         ReleaseInfo latest;
@@ -78,23 +78,22 @@ internal static class Updater
             return 1;
         }
 
-        if (string.IsNullOrEmpty(latest.Tag))
+        if (string.IsNullOrEmpty(latest.Tag) && string.IsNullOrEmpty(latest.Name))
         {
             ConsoleUi.Warn("远端还没有发布任何 Release，无需更新。");
             return 0;
         }
 
-        ConsoleUi.Info($"远端最新：{latest.Tag}"
-            + (string.IsNullOrEmpty(latest.Name) ? "" : $"（{latest.Name}）"));
+        var remote = ResolveRemoteVersion(latest);
+        ConsoleUi.Info($"远端最新：{remote.Display}" + (remote.Forced ? "（强制更新）" : ""));
 
-        var cmp = CompareVersions(latest.Tag, current);
-        if (cmp <= 0)
+        if (Versioning.Compare(remote, current) <= 0)
         {
-            ConsoleUi.Ok($"当前已是最新版本（{current}），无需更新。");
+            ConsoleUi.Ok($"当前已是最新版本（{current.Display}），无需更新。");
             return 0;
         }
 
-        ConsoleUi.Warn($"发现新版本 {latest.Tag}，当前为 {current}。");
+        ConsoleUi.Warn($"发现新版本：{remote.Display}（当前 {current.Display}）。");
         if (latest.AssetUrl == null)
         {
             ConsoleUi.Error("该 Release 没有附带 android.exe 资产，请到页面手动下载：");
@@ -102,13 +101,32 @@ internal static class Updater
             return 1;
         }
 
-        if (!ConsoleUi.Confirm($"是否现在更新到 {latest.Tag}？", true))
+        if (remote.Forced)
+        {
+            ConsoleUi.Warn("这是一个强制更新版本，只能选 Y。");
+            ConsoleUi.ConfirmForced($"是否现在更新到 {remote.Display}？");
+        }
+        else if (!ConsoleUi.Confirm($"是否现在更新到 {remote.Display}？", true))
         {
             ConsoleUi.Info("已取消，保持当前版本。");
             return 0;
         }
 
-        return await DownloadAndReplaceAsync(latest);
+        return await DownloadAndReplaceAsync(latest, remote);
+    }
+
+    /// <summary>版本以 Release 标题为准，标题里没有版本号时退回 tag。</summary>
+    private static BuildId ResolveRemoteVersion(ReleaseInfo latest)
+    {
+        var fromName = Versioning.Parse(latest.Name);
+        var fromTag = Versioning.Parse(latest.Tag);
+        var haveName = fromName.Segments.Length > 1 || fromName.Segments[0] != 0;
+        if (haveName && (latest.Name.Contains(BuildId.FormalLabel) || latest.Name.Contains(BuildId.PreviewLabel)))
+            fromName.Forced |= fromTag.Forced;
+        if (!haveName) fromTag.Forced |= fromName.Forced;
+        var chosen = haveName ? fromName : fromTag;
+        if (!latest.Name.Contains("强制") && latest.Tag.Contains("强制")) chosen.Forced = true;
+        return chosen;
     }
 
     // ---------------------------------------------------------------- GitHub
@@ -150,39 +168,9 @@ internal static class Updater
         return info;
     }
 
-    // ---------------------------------------------------------------- 版本比较
-
-    /// <summary>"2026-11-12.3" 与 "v2026.11.12.3" 视为同一版本。</summary>
-    private static int[] Split(string text)
-    {
-        var t = (text ?? "").Trim().TrimStart('v', 'V').Replace('-', '.');
-        var parts = t.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
-        var nums = new int[parts.Length];
-        for (var i = 0; i < parts.Length; i++)
-        {
-            var digits = new string(parts[i].TakeWhile(char.IsDigit).ToArray());
-            nums[i] = int.TryParse(digits, out var n) ? n : 0;
-        }
-        return nums;
-    }
-
-    private static int CompareVersions(string a, string b)
-    {
-        var x = Split(a);
-        var y = Split(b);
-        var len = Math.Max(x.Length, y.Length);
-        for (var i = 0; i < len; i++)
-        {
-            var xa = i < x.Length ? x[i] : 0;
-            var ya = i < y.Length ? y[i] : 0;
-            if (xa != ya) return xa < ya ? -1 : 1;
-        }
-        return 0;
-    }
-
     // ---------------------------------------------------------------- 下载并自替换
 
-    private static async Task<int> DownloadAndReplaceAsync(ReleaseInfo latest)
+    private static async Task<int> DownloadAndReplaceAsync(ReleaseInfo latest, BuildId remote)
     {
         var currentExe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(currentExe) || !File.Exists(currentExe))
@@ -241,7 +229,7 @@ internal static class Updater
 
         if (replaced)
         {
-            ConsoleUi.Ok($"已更新到 {latest.Tag}。");
+            ConsoleUi.Ok($"已更新到 {remote.Display}。");
             ConsoleUi.Info("请重新运行 android.exe 使用新版本（旧版本会以 android.old.exe 留在同目录，下次启动自动清理）。");
         }
         return replaced ? 0 : 1;
@@ -310,7 +298,7 @@ internal static class Updater
             ConnectTimeout = TimeSpan.FromSeconds(15),
         };
         using var client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("AndroidSubsystem/" + ConsoleUi.BuildVersion);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("AndroidSubsystem/" + ConsoleUi.BuildId);
 
         // 等响应头同样要有上限，否则网络卡死时进程会永久挂起
         using var headTimeout = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(45));
