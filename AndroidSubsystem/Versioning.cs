@@ -24,6 +24,8 @@ internal sealed class BuildId
 
     public ReleaseChannel Channel = ReleaseChannel.Preview;
     public int[] Segments = new[] { 0 };
+    /// <summary>原始段落字符串，保留前导零（2026-11-01-0 显示成 2026-11-01-0，不会变成 2026-11-1-0）。</summary>
+    public string[] RawSegments = new[] { "0" };
     public bool Forced;
     public string Label = PreviewLabel;
 
@@ -32,7 +34,8 @@ internal sealed class BuildId
 
     /// <summary>正式版用点号（1.0.0.0），预览版用短横（2026-11-14-8）。</summary>
     public string Number =>
-        string.Join(Channel == ReleaseChannel.Formal ? "." : "-", Segments.Select(s => s.ToString()));
+        string.Join(Channel == ReleaseChannel.Formal ? "." : "-",
+            RawSegments.Length > 0 ? RawSegments : Segments.Select(s => s.ToString()));
 }
 
 internal static class Versioning
@@ -77,17 +80,23 @@ internal static class Versioning
             else if (ch is '.' or '-' or '_') sb.Append('.');
         }
 
-        var segments = sb.ToString()
+        var parts = sb.ToString()
             .Trim('.')
-            .Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries)
+            .Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
+        var segments = parts
             .Select(p => int.TryParse(p, out var n) ? n : 0)
             .ToArray();
-        if (segments.Length == 0) segments = new[] { 0 };
+        if (segments.Length == 0)
+        {
+            segments = new[] { 0 };
+            parts = new[] { "0" };
+        }
 
         // 没写「正式版/预览版」字样时，用首位数字推断：2000 以上是日期式预览版
         id.Channel = channel ?? (segments[0] >= 2000 ? ReleaseChannel.Preview : ReleaseChannel.Formal);
         id.Label = id.Channel == ReleaseChannel.Formal ? BuildId.FormalLabel : BuildId.PreviewLabel;
         id.Segments = segments;
+        id.RawSegments = parts;
         return id;
     }
 
