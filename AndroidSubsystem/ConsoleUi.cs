@@ -7,10 +7,10 @@ namespace AndroidSubsystem;
 internal static class ConsoleUi
 {
     /// <summary>构建标识，用于确认用户手里跑的是哪一版 exe（正式版用 1.0.0.0，预览版用日期式编号）。</summary>
-    public const string BuildVersion = "正式版1.0.0.1";
+    public const string BuildVersion = "正式版1.0.0.0";
 
     /// <summary>纯 ASCII 版本号，仅用于 HTTP User-Agent 等不允许中文的场合。</summary>
-    public const string BuildId = "1.0.0.1";
+    public const string BuildId = "1.0.0.0";
 
     public static void Banner()
     {
