@@ -258,8 +258,8 @@ internal sealed class AndroidSdk
 
         // 许可证确认需要反复输入 y
         var yes = string.Concat(Enumerable.Repeat("y\n", 600));
-        return ProcessRunner.Run(JavaExe, cliArgs, stdIn: yes, environment: Env(),
-                                 timeoutMs: timeoutMs, onStdOut: onOut);
+        return ProcessRunner.RunStreamed(JavaExe, cliArgs, stdIn: yes, environment: Env(),
+                                         timeoutMs: timeoutMs, onLine: onOut);
     }
 
     public void AcceptLicenses()
@@ -273,7 +273,19 @@ internal sealed class AndroidSdk
         foreach (var p in packages)
             ConsoleUi.Info("安装：" + p);
 
-        var r = SdkManager(packages, timeoutMs: 0);
+        // sdkmanager 的进度是 \r 刷新的 "[====  ] 42% Downloading …"，边收边转成界面进度
+        var lastPct = -1.0;
+        void OnLine(string text)
+        {
+            var m = Regex.Match(text, @"(\d{1,3})\s*%");
+            if (!m.Success) return;
+            if (!double.TryParse(m.Groups[1].Value, out var pct)) return;
+            if (Math.Abs(pct - lastPct) < 1) return;
+            lastPct = pct;
+            ConsoleUi.ProgressPercent("下载", pct);
+        }
+
+        var r = SdkManager(packages, timeoutMs: 0, onOut: OnLine);
         if (!r.Success)
         {
             var tail = string.Join("\n", r.Combined.Split('\n').TakeLast(8));
@@ -489,7 +501,7 @@ internal sealed class AndroidSdk
     }
 
     /// <summary>关掉正在运行该 AVD 的模拟器实例（按 adb 里的 AVD 名匹配，不误杀别的版本）。</summary>
-    private void KillEmulatorForAvd(string avdName)
+    public void KillEmulatorForAvd(string avdName)
     {
         if (!IsRunning(avdName) || !HasAdb) return;
 

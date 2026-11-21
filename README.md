@@ -1,6 +1,8 @@
-# 2026.11.12.7 — Android Subsystem for Windows
+# 1.0.0.0 — Android Subsystem for Windows
 
-用 C# 写的 Windows「安卓子系统」命令行工具。产物是**单个自包含 exe**（`android.exe`，约 35 MB，目标机无需安装 .NET），它调用 Android Studio 官方那套 SDK / emulator 来完成下载、建虚拟机、启动虚拟机。
+用 C# 写的 Windows「安卓子系统」命令行工具。产物是**单个自包含 exe**（`android.exe`，约 65 MB，目标机无需安装 .NET），它调用 Android Studio 官方那套 SDK / emulator 来完成下载、建虚拟机、启动虚拟机。
+
+> 版本号已从旧代号（`2026-11-20.1` 这类以年份开头的构建号）改为正式版 `1.0.0.0`。旧版用户无法通过内置更新升级到 1.0.0.0（数字比较会被判成回退），请自行下载最新 `android.exe` 覆盖旧文件；配置、镜像与 AVD 都会保留。
 
 默认机型：**Pixel 9 Pro**。版本范围：Android 2.2（API 8）→ Android 17（API 37），共 29 个版本。
 

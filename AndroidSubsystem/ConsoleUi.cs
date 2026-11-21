@@ -6,8 +6,8 @@ namespace AndroidSubsystem;
 
 internal static class ConsoleUi
 {
-    /// <summary>构建标识，用于确认用户手里跑的是哪一版 exe。</summary>
-    public const string BuildVersion = "2026-11-12.7";
+    /// <summary>构建标识，用于确认用户手里跑的是哪一版 exe。1.0.0.0 起为正式版。</summary>
+    public const string BuildVersion = "1.0.0.0";
 
     public static void Banner()
     {
@@ -70,12 +70,28 @@ internal static class ConsoleUi
         }
     }
 
-    /// <summary>单行进度条，覆盖刷新当前行。</summary>
+    /// <summary>只知道百分比时的进度（sdkmanager 只给我们百分比）。</summary>
+    public static void ProgressPercent(string label, double pct)
+    {
+        if (Environment.GetEnvironmentVariable("ANDROID_GUI_PROGRESS") == "1")
+        {
+            Console.WriteLine($"#P|{label}|{pct:0.0}|-1|-1|0");
+            return;
+        }
+        Console.Write("\r" + $"   {label}  {pct,6:0.0}%".PadRight(78));
+    }
+
+    /// <summary>单行进度条，覆盖刷新当前行；图形界面模式下改为结构化行输出。</summary>
     public static void Progress(string label, long done, long total, double mbPerSec)
     {
         double pct = total > 0 ? (double)done * 100 / total : 0;
         long doneMb = done / (1024 * 1024);
         long totalMb = total / (1024 * 1024);
+        if (Environment.GetEnvironmentVariable("ANDROID_GUI_PROGRESS") == "1")
+        {
+            Console.WriteLine($"#P|{label}|{pct:0.0}|{doneMb}|{totalMb}|{mbPerSec:0.0}");
+            return;
+        }
         string text = total > 0
             ? $"   {label}  {pct,6:0.0}%  {doneMb,5}/{totalMb,-5} MB  {mbPerSec,5:0.0} MB/s"
             : $"   {label}  {doneMb,5} MB  {mbPerSec,5:0.0} MB/s";
@@ -84,6 +100,7 @@ internal static class ConsoleUi
 
     public static void EndProgress()
     {
+        if (Environment.GetEnvironmentVariable("ANDROID_GUI_PROGRESS") == "1") return;
         Console.Write("\r" + new string(' ', 78) + "\r");
     }
 }

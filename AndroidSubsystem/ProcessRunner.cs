@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 
 namespace AndroidSubsystem;
@@ -13,6 +14,92 @@ internal sealed record ProcessResult(int ExitCode, string StdOut, string StdErr)
 
 internal static class ProcessRunner
 {
+    /// <summary>
+    /// 边跑边读：外部程序若用 \r 覆盖刷新进度（sdkmanager 就是这样），
+    /// BeginOutputReadLine 只按 \n 切分，要等整行结束才回调，进度就“卡住”了。
+    /// 这里直接读字符流，\r 和 \n 都当行结束，边收边回调。
+    /// </summary>
+    public static ProcessResult RunStreamed(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        string? stdIn = null,
+        IReadOnlyDictionary<string, string>? environment = null,
+        int timeoutMs = 0,
+        Action<string>? onLine = null)
+    {
+        var psi = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        psi.FileName = fileName;
+        foreach (var a in arguments) psi.ArgumentList.Add(a);
+        if (environment != null)
+            foreach (var kv in environment) psi.Environment[kv.Key] = kv.Value;
+
+        var stdoutAll = new StringBuilder();
+        var stderr = new StringBuilder();
+
+        using var proc = new Process { StartInfo = psi };
+        proc.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (stderr) stderr.AppendLine(e.Data); };
+        proc.Start();
+        proc.BeginErrorReadLine();
+
+        if (stdIn != null)
+        {
+            try { proc.StandardInput.Write(stdIn); proc.StandardInput.Flush(); }
+            catch (IOException) { }
+        }
+        try { proc.StandardInput.Close(); } catch (IOException) { }
+
+        var line = new StringBuilder();
+        var buffer = new char[4096];
+        using (var reader = new StreamReader(proc.StandardOutput.BaseStream, Encoding.UTF8))
+        {
+            while (true)
+            {
+                int n = reader.Read(buffer, 0, buffer.Length);
+                if (n <= 0) break;
+                for (int i = 0; i < n; i++)
+                {
+                    var c = buffer[i];
+                    if (c == '\r' || c == '\n')
+                    {
+                        if (line.Length == 0) continue;
+                        var text = line.ToString();
+                        line.Clear();
+                        stdoutAll.AppendLine(text);
+                        try { onLine?.Invoke(text); } catch { }
+                    }
+                    else line.Append(c);
+                }
+            }
+        }
+        if (line.Length > 0)
+        {
+            var text = line.ToString();
+            stdoutAll.AppendLine(text);
+            try { onLine?.Invoke(text); } catch { }
+        }
+
+        if (timeoutMs > 0)
+        {
+            if (!proc.WaitForExit(timeoutMs))
+            {
+                try { proc.Kill(true); } catch { }
+                return new ProcessResult(-1, stdoutAll.ToString(), stderr.ToString() + "\n(超时)");
+            }
+        }
+        else proc.WaitForExit();
+
+        return new ProcessResult(proc.ExitCode, stdoutAll.ToString(), stderr.ToString());
+    }
+
     /// <summary>
     /// 运行外部程序（支持 .exe / .bat / .cmd）。沉默执行，返回退出码与输出。
     /// </summary>

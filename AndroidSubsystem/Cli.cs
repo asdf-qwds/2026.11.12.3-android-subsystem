@@ -83,7 +83,10 @@ internal static class Cli
                                host / auto（显卡渲染快，但部分 Intel 核显会白屏）
                                angle_indirect / guest
   -stop                        关闭所有正在运行的模拟器
-  -update                      检查 GitHub 上的新版本：有更新会提示 Y/N，Y 则下载并替换当前 exe
+  -update                      检查 GitHub 上的新版本：远端更高提示更新、一样显示无需更新、
+                               远端更旧（作者可能删了版本）提示「此版本可能为测试版」并问是否回退，Y 则下载替换当前 exe
+  -settings                    打开图形化设置窗口（左边一列：更新 / 语言 / 图形界面 / 启动）
+  -gui                         直接打开图形界面（设置里开启「GUI 模式」后，双击 exe 也会直接进图形界面）
   -where                       显示当前下载目录与配置位置
 
 版本写法：android17、17、android2.2、android5.0 ……

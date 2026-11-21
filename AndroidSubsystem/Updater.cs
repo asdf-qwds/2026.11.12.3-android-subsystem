@@ -25,9 +25,31 @@ internal static class Updater
         public string Tag = "";
         public string Name = "";
         public string PageUrl = "";
+        public bool Draft;
         public string? AssetUrl;
         public string? AssetName;
         public long AssetSize;
+    }
+
+    /// <summary>当前更新方式：stable（正式版）或 preview（预览版）。</summary>
+    private static string Channel()
+    {
+        try
+        {
+            var s = Settings.Load();
+            return (s.UpdateChannel ?? "").Equals("preview", StringComparison.OrdinalIgnoreCase)
+                ? "preview" : "stable";
+        }
+        catch { return "stable"; }
+    }
+
+    private static string ChannelLabel(string channel) => channel == "preview" ? "预览版" : "正式版";
+
+    /// <summary>预览版的代号以当前年份开头（如 2026.11.21.1）；正式版不带年份前缀。</summary>
+    private static bool IsPreviewTag(string tag)
+    {
+        var t = (tag ?? "").Trim().TrimStart('v', 'V', '-', ' ');
+        return t.StartsWith(DateTime.Now.Year.ToString(), StringComparison.Ordinal);
     }
 
     private static HttpClient CreateClient()
@@ -64,7 +86,18 @@ internal static class Updater
 
         ConsoleUi.Step("检查更新（GitHub Releases）");
         ConsoleUi.Info($"当前版本：{current}");
+        ConsoleUi.Info($"更新方式：{ChannelLabel(Channel())}");
         ConsoleUi.Info($"版本来源：https://github.com/{owner}/{repo}/releases");
+
+        // 旧代号（2026-11-20.1 这一类）拿不到新代号 1.0.0.0：按版本比较会被判成“回退”，
+        // 所以旧版用户只能手动下载，这里给出明确指引。
+        if (IsLegacyCode(current))
+        {
+            ConsoleUi.Warn("当前是旧版（build " + current + "）。");
+            ConsoleUi.Warn("旧版无法通过这里的内置更新升级到 1.0.0.0 正式版，请自行下载最新版覆盖 android.exe：");
+            ConsoleUi.Info($"https://github.com/{owner}/{repo}/releases");
+            return 0;
+        }
 
         ReleaseInfo latest;
         try
@@ -80,7 +113,9 @@ internal static class Updater
 
         if (string.IsNullOrEmpty(latest.Tag))
         {
-            ConsoleUi.Warn("远端还没有发布任何 Release，无需更新。");
+            ConsoleUi.Warn(Channel() == "preview"
+                ? "该更新方式下还没有预览版（预览版代号以年份开头）。"
+                : "该更新方式下还没有正式版；以年份开头的预览版已忽略。");
             return 0;
         }
 
@@ -88,13 +123,22 @@ internal static class Updater
             + (string.IsNullOrEmpty(latest.Name) ? "" : $"（{latest.Name}）"));
 
         var cmp = CompareVersions(latest.Tag, current);
-        if (cmp <= 0)
+        if (cmp == 0)
         {
             ConsoleUi.Ok($"当前已是最新版本（{current}），无需更新。");
             return 0;
         }
 
-        ConsoleUi.Warn($"发现新版本 {latest.Tag}，当前为 {current}。");
+        var rollback = cmp < 0;
+        if (rollback)
+        {
+            ConsoleUi.Warn($"远端最新版本 {latest.Tag} 比当前版本 {current} 旧，此版本可能为测试版（作者删除了）。");
+        }
+        else
+        {
+            ConsoleUi.Warn($"发现新版本 {latest.Tag}，当前为 {current}。");
+        }
+
         if (latest.AssetUrl == null)
         {
             ConsoleUi.Error("该 Release 没有附带 android.exe 资产，请到页面手动下载：");
@@ -102,30 +146,70 @@ internal static class Updater
             return 1;
         }
 
-        if (!ConsoleUi.Confirm($"是否现在更新到 {latest.Tag}？", true))
+        var question = rollback
+            ? $"是否回退到 {latest.Tag}？"
+            : $"是否现在更新到 {latest.Tag}？";
+        if (!ConsoleUi.Confirm(question, true))
         {
-            ConsoleUi.Info("已取消，保持当前版本。");
+            ConsoleUi.Info(rollback ? "已取消回退，保持当前版本。" : "已取消，保持当前版本。");
             return 0;
         }
 
-        return await DownloadAndReplaceAsync(latest);
+        return await DownloadAndReplaceAsync(latest, rollback);
+    }
+
+    // ---------------------------------------------------------------- 图形界面用
+
+    /// <summary>只查询不询问：返回 (比较结果, 远端版本, 远端标题)。比较结果 &gt;0 有新版本，&lt;0 远端更旧。</summary>
+    public static async Task<(int cmp, string tag, string name)> PeekAsync()
+    {
+        var (owner, repo) = Target();
+        var latest = await FetchLatestAsync(owner, repo);
+        if (string.IsNullOrEmpty(latest.Tag)) return (0, "", "");
+        return (CompareVersions(latest.Tag, ConsoleUi.BuildVersion), latest.Tag, latest.Name);
     }
 
     // ---------------------------------------------------------------- GitHub
 
     private static async Task<ReleaseInfo> FetchLatestAsync(string owner, string repo)
     {
-        var url = $"https://api.github.com/repos/{owner}/{repo}/releases/latest";
+        var channel = Channel();
+        var url = $"https://api.github.com/repos/{owner}/{repo}/releases?per_page=50";
         var json = await Http.GetStringAsync(url);
 
         using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        if (doc.RootElement.ValueKind != JsonValueKind.Array) return new ReleaseInfo();
 
+        var best = new ReleaseInfo();
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            var info = ParseRelease(item);
+            if (info.Draft || string.IsNullOrEmpty(info.Tag)) continue;
+
+            // 正式版忽略以年份开头的预览版；预览版只看以年份开头的版本
+            var preview = IsPreviewTag(info.Tag);
+            if (channel == "preview")
+            {
+                if (!preview) continue;
+            }
+            else
+            {
+                if (preview) continue;
+            }
+
+            if (string.IsNullOrEmpty(best.Tag) || CompareVersions(info.Tag, best.Tag) > 0) best = info;
+        }
+        return best;
+    }
+
+    private static ReleaseInfo ParseRelease(JsonElement root)
+    {
         var info = new ReleaseInfo
         {
             Tag = root.TryGetProperty("tag_name", out var tag) ? (tag.GetString() ?? "") : "",
             Name = root.TryGetProperty("name", out var name) ? (name.GetString() ?? "") : "",
             PageUrl = root.TryGetProperty("html_url", out var page) ? (page.GetString() ?? "") : "",
+            Draft = root.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True,
         };
 
         if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
@@ -151,6 +235,13 @@ internal static class Updater
     }
 
     // ---------------------------------------------------------------- 版本比较
+
+    /// <summary>是不是旧代号（2026-11-20.1 这种以年份开头、四位数的构建号）。</summary>
+    private static bool IsLegacyCode(string version)
+    {
+        var parts = Split(version);
+        return parts.Length > 0 && parts[0] >= 1990;
+    }
 
     /// <summary>"2026-11-12.3" 与 "v2026.11.12.3" 视为同一版本。</summary>
     private static int[] Split(string text)
@@ -182,7 +273,7 @@ internal static class Updater
 
     // ---------------------------------------------------------------- 下载并自替换
 
-    private static async Task<int> DownloadAndReplaceAsync(ReleaseInfo latest)
+    private static async Task<int> DownloadAndReplaceAsync(ReleaseInfo latest, bool rollback)
     {
         var currentExe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(currentExe) || !File.Exists(currentExe))
@@ -241,7 +332,7 @@ internal static class Updater
 
         if (replaced)
         {
-            ConsoleUi.Ok($"已更新到 {latest.Tag}。");
+            ConsoleUi.Ok(rollback ? $"已回退到 {latest.Tag}。" : $"已更新到 {latest.Tag}。");
             ConsoleUi.Info("请重新运行 android.exe 使用新版本（旧版本会以 android.old.exe 留在同目录，下次启动自动清理）。");
         }
         return replaced ? 0 : 1;

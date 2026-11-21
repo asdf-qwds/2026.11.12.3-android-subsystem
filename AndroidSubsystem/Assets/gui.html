@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>安卓虚拟机</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #ffffff; }
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; color: #1F2329; }
+  #stage { position: absolute; inset: 0; overflow: hidden; background: #fff; }
+  #app { position: absolute; width: 1762px; height: 1002px; left: 0; top: 0; transform-origin: top left; }
+  .shell { position: absolute; inset: 0; border-radius: 12px; overflow: hidden; background: #fff; }
+
+  /* 顶栏 */
+  .chrome { position: absolute; left: 0; top: 0; right: 0; height: 62px; background: #F7F8F9; }
+  .brand { position: absolute; left: 16px; top: 13px; display: flex; align-items: center; gap: 14px; }
+  .brand .brandpic { height: 36px; }
+  .brand .name { font-size: 19px; font-weight: 700; }
+  .win-btns { position: absolute; right: 8px; top: 12px; display: flex; }
+  .win-btn { width: 46px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .win-btn svg { width: 12px; height: 12px; }
+  .win-btn:hover { background: #E9EBEF; }
+  .win-btn.close:hover { background: #E84A4A; }
+  .win-btn.close:hover svg { stroke: #fff; }
+
+  /* 侧栏 */
+  .side { position: absolute; left: 0; top: 62px; bottom: 0; width: 278px; background: #F4F5F7; }
+  .nav { position: absolute; left: 28px; top: 24px; right: 28px; }
+  .nav-item { height: 59px; border-radius: 10px; display: flex; align-items: center; gap: 20px;
+    padding-left: 24px; font-size: 17px; color: #474D56; cursor: pointer; margin-bottom: 3px; user-select: none; }
+  .nav-item:hover { background: #E9ECF1; }
+  .nav-item.active { background: #2563EB; color: #fff; font-weight: 700; }
+  .nav-item.active:hover { background: #2563EB; }
+  .nav-item svg { width: 22px; height: 22px; flex: none; }
+  .side-card { position: absolute; left: 28px; right: 28px; bottom: 32px; height: 96px;
+    background: #EDF0F4; border-radius: 10px; padding: 18px 16px; }
+  .side-card .l1 { font-size: 13px; color: #8B9099; }
+  .side-card .l2 { font-size: 16px; font-weight: 700; margin-top: 6px; }
+  .side-card .bar { width: 62px; height: 2px; background: #2563EB; margin-top: 10px; }
+
+  /* 主区 */
+  .main { position: absolute; left: 278px; top: 62px; right: 0; bottom: 0; background: #fff; }
+  .title { position: absolute; left: 40px; top: 30px; font-size: 34px; font-weight: 700; }
+  .subtitle { position: absolute; left: 42px; top: 88px; font-size: 15px; color: #8B9099; }
+
+  .list { position: absolute; left: 40px; top: 150px; width: 1402px; bottom: 118px; overflow-y: auto; padding-right: 6px; }
+  .list::-webkit-scrollbar { width: 10px; }
+  .list::-webkit-scrollbar-thumb { background: #D9DCE2; border-radius: 6px; }
+
+  .card { position: relative; height: 140px; border: 1px solid #E8EAEE; border-radius: 12px;
+    background: #fff; margin-bottom: 20px; cursor: pointer; }
+  .card:hover { border-color: #D6DAE1; }
+  .card.selected { border-color: #2563EB; }
+  .card img.icon { position: absolute; left: 26px; top: 30px; width: 80px; height: 80px; border-radius: 12px; }
+  .c-title { position: absolute; left: 124px; top: 22px; font-size: 22px; font-weight: 700; }
+  .c-desc { position: absolute; left: 126px; top: 58px; font-size: 14px; color: #8B9099; }
+  .pill { position: absolute; left: 124px; top: 88px; height: 34px; border-radius: 17px;
+    display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; font-size: 13px; }
+  .pill.on { background: #E9F7EE; color: #22A060; }
+  .pill.off { background: #F0F2F5; color: #7C8390; }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+  .more { position: absolute; right: 470px; top: 48px; width: 90px; height: 44px; border-radius: 8px;
+    background: #F0F1F3; display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 14px; color: #606771; cursor: pointer; user-select: none; }
+  .more:hover { background: #E7E9ED; }
+  .more svg { width: 12px; height: 12px; opacity: .7; }
+
+  .act { position: absolute; right: 322px; top: 56px; width: 84px; text-align: center; font-size: 16px;
+    color: #2563EB; cursor: pointer; user-select: none; }
+  .act:hover { text-decoration: underline; }
+
+  .sq { position: absolute; right: 204px; top: 40px; width: 60px; height: 60px; border-radius: 10px;
+    background: #E8EEFC; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .sq:hover { background: #DCE7FB; }
+  .sq svg { width: 20px; height: 20px; }
+
+  /* 运行中 */
+  .card.running .more { right: 600px; }
+  .card.running .act { right: 500px; color: #8B9099; cursor: default; }
+  .card.running .act:hover { text-decoration: none; }
+  .card.running .sq { display: none; }
+  .mini { position: absolute; top: 48px; height: 44px; width: 88px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; font-size: 14px;
+    cursor: pointer; user-select: none; }
+  .card.running .stopb { right: 264px; background: #FDECEA; color: #D93026; }
+  .card.running .stopb:hover { background: #FBDDD9; }
+  .card.running .rebootb { right: 366px; background: #F0F1F3; color: #606771; }
+  .card.running .rebootb:hover { background: #E7E9ED; }
+
+  /* 安装包页 */
+  .apkPage { position: absolute; left: 0; top: 0; right: 0; bottom: 0; display: none; }
+  .apkPage.show { display: block; }
+  .drop { position: absolute; left: 40px; top: 150px; width: 1402px; height: 420px;
+    border: 2px dashed #D5DAE2; border-radius: 12px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; color: #8B9099; }
+  .drop.hover { border-color: #2563EB; background: #F3F7FF; }
+  .drop .bigicon { width: 56px; height: 56px; }
+  .drop .d1 { font-size: 20px; font-weight: 700; color: #1F2329; }
+  .drop .d2 { font-size: 15px; }
+  .drop .d3 { font-size: 13px; color: #A7ADB6; }
+
+  /* 底部 */
+  .foot { position: absolute; left: 278px; right: 0; bottom: 0; height: 102px; background: #fff; border-top: 1px solid #E7E9ED; }
+  .prog { position: absolute; left: 386px; top: 14px; width: 560px; height: 76px; display: none; }
+  .prog.show { display: block; }
+  .prog .ptop { display: flex; align-items: center; gap: 12px; font-size: 14px; color: #1F2329; }
+  .prog .ptop b { font-weight: 700; }
+  .prog .ptop .pct { font-size: 14px; color: #2563EB; font-weight: 700; }
+  .prog .pbar { margin-top: 10px; height: 8px; border-radius: 4px; background: #E7EAF0; overflow: hidden; }
+  .prog .pfill { height: 100%; width: 0; border-radius: 4px; background: #2563EB; transition: width .18s linear; }
+  .prog .pfill.done { background: #22A060; }
+  .prog.indet .pfill { width: 35% !important; animation: slide 1.1s infinite ease-in-out; }
+  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+  .prog .pbot { margin-top: 8px; font-size: 12px; color: #8B9099; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .files { position: absolute; left: 40px; top: 36px; display: flex; align-items: center; gap: 12px;
+    font-size: 15px; color: #8B9099; cursor: pointer; user-select: none; }
+  .files svg { width: 20px; height: 20px; }
+  .manage { position: absolute; left: 210px; top: 36px; display: flex; align-items: center; gap: 6px;
+    font-size: 15px; color: #8B9099; cursor: pointer; user-select: none; }
+  .manage svg { width: 10px; height: 12px; opacity: .6; }
+  .pick { position: absolute; right: 640px; top: 18px; width: 280px; height: 66px; border-radius: 10px;    background: #F6F7F9; border: 1px solid #E7E9ED; padding: 10px 18px; cursor: pointer; }
+  .pick .l1 { font-size: 13px; color: #8B9099; }
+  .pick .l2 { font-size: 16px; font-weight: 700; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .big { position: absolute; right: 42px; top: 18px; width: 420px; height: 66px; border-radius: 10px;
+    background: #2563EB; color: #fff; display: flex; align-items: center; justify-content: center;
+    gap: 10px; font-size: 20px; font-weight: 700; cursor: pointer; user-select: none; }
+  .big:hover { background: #1E56D2; }
+  .big svg { width: 18px; height: 18px; }
+  .empty { padding: 40px 4px; color: #9AA0A8; font-size: 15px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="app">
+    <div class="shell">
+      <div class="chrome" id="chrome">
+        <div class="brand">
+          <img class="brandpic" src="brand.png" alt="">
+          <span class="name" id="appName">安卓虚拟机</span>
+        </div>
+        <div class="win-btns">
+          <div class="win-btn" id="btnMin" title="最小化"><svg viewBox="0 0 12 12" fill="none" stroke="#5A6069" stroke-width="1.4"><path d="M2 6h8"/></svg></div>
+          <div class="win-btn" id="btnMax" title="最大化"><svg viewBox="0 0 12 12" fill="none" stroke="#5A6069" stroke-width="1.4"><rect x="2.2" y="2.2" width="7.6" height="7.6"/></svg></div>
+          <div class="win-btn close" id="btnClose" title="关闭"><svg viewBox="0 0 12 12" fill="none" stroke="#5A6069" stroke-width="1.4"><path d="M2.4 2.4l7.2 7.2M9.6 2.4l-7.2 7.2"/></svg></div>
+        </div>
+      </div>
+
+      <div class="side">
+        <div class="nav" id="nav"></div>
+        <div class="side-card" id="sideCard">
+          <div class="l1" id="betterA">更好的安卓体验</div>
+          <div class="l2" id="betterB">从这里开始</div>
+          <div class="bar"></div>
+        </div>
+      </div>
+
+      <div class="main">
+        <div id="pageHome">
+          <div class="title" id="pageTitle">安卓虚拟机</div>
+          <div class="subtitle" id="pageSub">管理和运行安卓系统，轻松、流畅、高效</div>
+          <div class="list" id="list"></div>
+        </div>
+
+        <div class="apkPage" id="pageApk">
+          <div class="title" id="apkTitle">安装包</div>
+          <div class="subtitle" id="apkSub">把 APK 拖进来，自动装到正在运行的虚拟机</div>
+          <div class="drop" id="dropZone">
+            <svg class="bigicon" viewBox="0 0 24 24" fill="none" stroke="#A7ADB6" stroke-width="1.6">
+              <path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"/>
+            </svg>
+            <div class="d1" id="dropA">把 APK 拖到这里</div>
+            <div class="d2" id="dropB">或者点击选择安装包</div>
+            <div class="d3" id="dropC">安装前会先确认虚拟机是否在运行</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot" id="foot">
+        <div class="files" id="files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#8B9099" stroke-width="1.6"><path d="M3 7h6l2 2h10v10H3z"/></svg>
+          <span id="filesText">已下载文件</span>
+        </div>
+        <div class="manage" id="manage">
+          <span id="manageText">管理本地安装包</span>
+          <svg viewBox="0 0 10 14" fill="none" stroke="#8B9099" stroke-width="1.6"><path d="M2 2l6 5-6 5"/></svg>
+        </div>
+        <div class="prog" id="prog">
+          <div class="ptop"><b id="progLabel">下载</b><span class="pct" id="progPct">0%</span></div>
+          <div class="pbar"><div class="pfill" id="progFill"></div></div>
+          <div class="pbot" id="progText"></div>
+        </div>
+        <div class="pick" id="pick">
+          <div class="l1" id="pickA">选择一个版本</div>
+          <div class="l2" id="pickB">开始使用</div>
+        </div>
+        <div class="big" id="big">
+          <svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5l12 7-12 7z"/></svg>
+          <span id="bigText">启动</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /*__ICONS__*/
+  const post = (msg) => { try { window.chrome.webview.postMessage(msg); } catch (e) {} };
+  let state = { versions: [], selected: null, view: 'home', ui: {} };
+
+  function iconSrc(v) {
+    const m = /Android\s+([0-9]+)/.exec((v && v.label) || '');
+    let n = m ? parseInt(m[1], 10) : 16;
+    n = Math.min(17, Math.max(2, n));
+    return 'icons/icon_' + n + '.png';
+  }
+
+
+
+  const NAV_SVG = {
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="8" width="17" height="10" rx="3.5"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/><path d="M7.2 8L6 5.4M16.8 8l1.2-2.6"/></svg>',
+    apk: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 12h8M12 8v8"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>',
+  };
+
+  function renderNav() {
+    const items = state.ui.nav || [];
+    document.getElementById('nav').innerHTML = items.map(it => `
+      <div class="nav-item ${it.key === state.view ? 'active' : ''}" data-nav="${it.key}">
+        ${NAV_SVG[it.key] || ''}<span>${it.label}</span>
+      </div>`).join('');
+    document.querySelectorAll('.nav-item').forEach(el =>
+      el.addEventListener('click', () => post({ cmd: 'nav', key: el.dataset.nav })));
+  }
+
+  function renderList() {
+    const list = document.getElementById('list');
+    const items = state.versions.slice().sort((a, b) => (b.api - a.api));
+    if (!items.length) { list.innerHTML = '<div class="empty">没有可用版本</div>'; return; }
+    list.innerHTML = items.map(v => `
+      <div class="card ${state.selected === v.key ? 'selected' : ''} ${v.running ? 'running' : ''}" data-key="${v.key}">
+        <img class="icon" src="${iconSrc(v)}" alt="">
+        <div class="c-title">${v.label}</div>
+        <div class="c-desc">${v.desc}</div>
+        <div class="pill ${v.installed ? 'on' : 'off'}"><i style="background:${v.installed ? '#22A060' : '#B7BCC4'}"></i>${v.installed ? state.ui.installed : state.ui.notInstalled}</div>
+        <div class="more" data-more="${v.key}"><span>${state.ui.more}</span>
+          <svg viewBox="0 0 12 12" fill="none" stroke="#606771" stroke-width="1.6"><path d="M2 4l4 4 4-4"/></svg>
+        </div>
+        ${v.running ? `<div class="mini rebootb" data-reboot="${v.key}">${state.ui.restart}</div>
+        <div class="mini stopb" data-stop="${v.key}">${state.ui.stop}</div>` : ''}
+        <div class="act" data-act="${v.key}" data-on="${v.installed}" data-run="${!!v.running}">${v.running ? state.ui.running : (v.installed ? state.ui.start : state.ui.download)}</div>
+        <div class="sq" data-sq="${v.key}" data-on="${v.installed}">
+          ${v.installed
+            ? '<svg viewBox="0 0 24 24" fill="#2563EB"><path d="M8 5l12 7-12 7z"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="1.8"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 18h14"/></svg>'}
+        </div>
+      </div>`).join('');
+
+    list.querySelectorAll('.card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.more') || e.target.closest('.act') || e.target.closest('.sq') ||
+            e.target.closest('.mini')) return;
+        state.selected = card.dataset.key; renderList(); renderPick(); post({ cmd: 'select', key: state.selected });
+      });
+    });
+    list.querySelectorAll('.more').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation(); post({ cmd: 'more', key: el.dataset.more });
+    }));
+    list.querySelectorAll('.act').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.dataset.run === 'true') return;
+      post({ cmd: el.dataset.on === 'true' ? 'start' : 'download', key: el.dataset.act });
+    }));
+    list.querySelectorAll('.sq').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation(); post({ cmd: el.dataset.on === 'true' ? 'start' : 'download', key: el.dataset.sq });
+    }));
+    list.querySelectorAll('.stopb').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation(); post({ cmd: 'stop', key: el.dataset.stop });
+    }));
+    list.querySelectorAll('.rebootb').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation(); post({ cmd: 'restart', key: el.dataset.reboot });
+    }));
+  }
+
+  function renderPick() {
+    const v = state.versions.find(x => x.key === state.selected);
+    document.getElementById('pickA').textContent = state.ui.pick;
+    document.getElementById('pickB').textContent = v ? v.label : state.ui.pick2;
+  }
+
+  function applyUi() {
+    const u = state.ui;
+    document.getElementById('appName').textContent = u.appName;
+    document.getElementById('pageTitle').textContent = u.appName;
+    document.getElementById('pageSub').textContent = u.subtitle;
+    document.getElementById('apkTitle').textContent = u.apkTitle;
+    document.getElementById('apkSub').textContent = u.apkSub;
+    document.getElementById('dropA').textContent = u.dropA;
+    document.getElementById('dropB').textContent = u.dropB;
+    document.getElementById('dropC').textContent = u.dropC;
+    document.getElementById('betterA').textContent = u.betterA;
+    document.getElementById('betterB').textContent = u.betterB;
+    document.getElementById('filesText').textContent = u.files;
+    document.getElementById('manageText').textContent = u.manage;
+    document.getElementById('bigText').textContent = u.start;
+    renderNav(); renderList(); renderPick();
+  }
+
+  function setView(v) {
+    state.view = v;
+    const apk = v === 'apk';
+    document.getElementById('pageHome').style.display = apk ? 'none' : 'block';
+    document.getElementById('pageApk').classList.toggle('show', apk);
+    document.getElementById('foot').style.display = apk ? 'none' : 'block';
+    renderNav();
+  }
+
+  window.app = {
+    setData(p) {
+      const l0 = document.getElementById('list');
+      const keep = l0 ? l0.scrollTop : 0;
+      if (p.ui) state.ui = p.ui;
+      if (p.versions) state.versions = p.versions;
+      if (p.selected) state.selected = p.selected;
+      applyUi();
+      const l = document.getElementById('list');
+      if (l) { l.scrollTop = keep; }
+    },
+    setView,
+    setProgress(p) {
+      const box = document.getElementById('prog');
+      const pick = document.getElementById('pick');
+      const manage = document.getElementById('manage');
+      if (!p || !p.visible) {
+        box.classList.remove('show');
+        if (pick) pick.style.display = '';
+        if (manage) manage.style.display = '';
+        return;
+      }
+      box.classList.add('show');
+      if (pick) pick.style.display = 'none';
+      if (manage) manage.style.display = 'none';
+      box.classList.toggle('indet', !!p.indeterminate && !p.done);
+      document.getElementById('progLabel').textContent = p.label || '';
+      const pct = Number(p.percent) || 0;
+      document.getElementById('progPct').textContent = p.indeterminate && !p.done ? '' : (pct.toFixed(0) + '%');
+      const fill = document.getElementById('progFill');
+      fill.style.width = p.done ? '100%' : (pct.toFixed(1) + '%');
+      fill.classList.toggle('done', !!p.done);
+      document.getElementById('progText').textContent = p.text || '';
+    },
+  };
+
+  function fit() {
+    const w = window.innerWidth, h = window.innerHeight;
+    const s = Math.min(w / 1762, h / 1002);
+    const app = document.getElementById('app');
+    if (!app) return;
+    app.style.transform = 'scale(' + s + ')';
+    app.style.left = ((w - 1762 * s) / 2) + 'px';
+    app.style.top = ((h - 1002 * s) / 2) + 'px';
+  }
+  window.addEventListener('resize', fit);
+  fit(); setTimeout(fit, 300);
+  setView('home');
+
+  document.getElementById('files').addEventListener('click', () => post({ cmd: 'openDownloads' }));
+  document.getElementById('manage').addEventListener('click', () => post({ cmd: 'openDownloads' }));
+  document.getElementById('sideCard').addEventListener('click', () => post({ cmd: 'settings' }));
+  document.getElementById('big').addEventListener('click', () => post({ cmd: 'startSelected', key: state.selected }));
+  document.getElementById('pick').addEventListener('click', () => post({ cmd: 'startSelected', key: state.selected }));
+  document.getElementById('btnMin').addEventListener('click', () => post({ cmd: 'min' }));
+  document.getElementById('btnMax').addEventListener('click', () => post({ cmd: 'max' }));
+  document.getElementById('btnClose').addEventListener('click', () => post({ cmd: 'close' }));
+  document.getElementById('chrome').addEventListener('mousedown', (e) => {
+    if (e.target.closest('.win-btn')) return;
+    post({ cmd: 'drag' });
+  });
+
+  // 安装包拖放：浏览器拿不到本地路径，交给 C# 选择器处理
+  const dropZone = document.getElementById('dropZone');
+  ['dragenter', 'dragover'].forEach(t => dropZone.addEventListener(t, (e) => {
+    e.preventDefault(); dropZone.classList.add('hover');
+  }));
+  ['dragleave', 'drop'].forEach(t => dropZone.addEventListener(t, (e) => {
+    e.preventDefault(); dropZone.classList.remove('hover');
+  }));
+  dropZone.addEventListener('drop', () => post({ cmd: 'pickApk' }));
+  dropZone.addEventListener('click', () => post({ cmd: 'pickApk' }));
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => e.preventDefault());
+</script>
+</body>
+</html>
+
